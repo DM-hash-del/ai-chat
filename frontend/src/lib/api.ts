@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios from 'axios'
 
 const api = axios.create({
     baseURL: '/',
@@ -8,8 +8,8 @@ const api = axios.create({
     xsrfHeaderName: 'X-XSRF-TOKEN',
     headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
+        Accept: 'application/json',
     },
-});
+})
 
-export default api;
+export default api
