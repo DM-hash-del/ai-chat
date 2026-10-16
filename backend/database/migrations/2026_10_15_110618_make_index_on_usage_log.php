@@ -24,6 +24,7 @@ return new class extends Migration
     {
         Schema::table('usage_logs', function (Blueprint $table) {
             $table->dropIndex(['user_id', 'created_at']);
+            $table->addColumn('datetime', 'updated_at')->nullable();
         });
     }
 };
