@@ -1,25 +1,29 @@
 <?php
 
-use Illuminate\Support\Facades\Auth;
 use App\Models\User;
 
-describe('Logout User', function () {
+use function Pest\Laravel\actingAs;
+use function Pest\Laravel\assertGuest;
+use function Pest\Laravel\postJson;
+use function Pest\Laravel\withHeader;
+
+describe('User Logout', function () {
 
     beforeEach(function () {
-        $this->withHeader('origin', 'http://localhost:5173');
+        withHeader('origin', 'http://localhost:5173');
     });
 
     test('Successfully', function () {
         $user = User::factory()->create();
-        $response = $this->actingAs($user)->postJson('/api/logout');
+        $response = actingAs($user)->postJson('/api/logout');
         $response->assertStatus(204);
-        $this->assertGuest('web'); 
+        assertGuest('web');
     });
 
     test('whos not logged in returns 401', function () {
-        $response = $this->postJson('/api/logout');
+        $response = postJson('/api/logout');
         $response->assertStatus(401);
-        $this->assertGuest('web');
+        assertGuest('web');
     });
 
 });

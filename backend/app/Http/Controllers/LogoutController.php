@@ -11,7 +11,7 @@ class LogoutController extends Controller
     {
         Auth::guard('web')->logout();
 
-        if($request->hasSession()) {
+        if ($request->hasSession()) {
             $request->session()->invalidate();
             $request->session()->regenerateToken();
         }

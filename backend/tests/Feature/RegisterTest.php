@@ -1,10 +1,12 @@
 <?php
 
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 
-// uses(RefreshDatabase::class);
+use function Pest\Laravel\assertAuthenticatedAs;
+use function Pest\Laravel\assertDatabaseHas;
+use function Pest\Laravel\postJson;
+use function Pest\Laravel\withHeader;
 
 function validRegistrationData(array $overrides = []): array
 {
@@ -19,38 +21,38 @@ function validRegistrationData(array $overrides = []): array
 describe('User Registration', function () {
 
     beforeEach(function () {
-        $this->withHeader('origin', 'http://localhost:5173');
+        withHeader('origin', 'http://localhost:5173');
     });
 
     test('can register and be authenticatedsuccessfully', function () {
-        $response = $this->postJson('/api/register', validRegistrationData());
+        $response = postJson('/api/register', validRegistrationData());
         $response->assertStatus(201);
-        $this->assertAuthenticatedAs(User::where(
+        assertAuthenticatedAs(User::where(
             'email', 'valid@example.com')->first()
         );
-        $this->assertDatabaseHas('users', [
+        assertDatabaseHas('users', [
             'name' => 'Valid User',
             'email' => 'valid@example.com',
         ]);
     });
 
     test('password is saved as a hash in the database', function () {
-        $response = $this->postJson('/api/register', validRegistrationData());
+        $response = postJson('/api/register', validRegistrationData());
         $response->assertStatus(201);
         $user = User::where('email', 'valid@example.com')->first();
         $storedPassword = $user->password;
-        $this->assertTrue(Hash::check('password123', $storedPassword));
+        expect(Hash::check('password123', $storedPassword))->toBeTrue();
     });
 
     test('emails are unique in the database', function () {
         User::factory()->create(['email' => 'valid@example.com']);
-        $responseTwo = $this->postJson('/api/register', validRegistrationData());
+        $responseTwo = postJson('/api/register', validRegistrationData());
         $responseTwo->assertStatus(422);
         $responseTwo->assertJsonValidationErrors(['email']);
     });
 
     test('cannot register with a password that is too short', function () {
-        $response = $this->postJson('/api/register', validRegistrationData([
+        $response = postJson('/api/register', validRegistrationData([
             'password' => 'short',
             'password_confirmation' => 'short',
         ]));
@@ -59,7 +61,7 @@ describe('User Registration', function () {
     });
 
     test('cannot register with a password that does not match the confirmation', function () {
-        $response = $this->postJson('/api/register', validRegistrationData([
+        $response = postJson('/api/register', validRegistrationData([
             'password' => 'password123',
             'password_confirmation' => 'differentPassword',
         ]));
@@ -68,11 +70,11 @@ describe('User Registration', function () {
     });
 
     test('cannot set their tier level during registration', function () {
-        $response = $this->postJson('/api/register', validRegistrationData([
+        $response = postJson('/api/register', validRegistrationData([
             'tier' => 'premium',
         ]));
         $response->assertStatus(201);
-        $this->assertDatabaseHas('users', [
+        assertDatabaseHas('users', [
             'name' => 'Valid User',
             'email' => 'valid@example.com',
             'tier' => 'free',
@@ -80,7 +82,7 @@ describe('User Registration', function () {
     });
 
     test('response does not contain the password or remember token', function () {
-        $response = $this->postJson('/api/register', validRegistrationData());
+        $response = postJson('/api/register', validRegistrationData());
         $response->assertStatus(201);
         $response->assertJsonMissing(['password', 'remember_token']);
         $response->assertJsonStructure([
@@ -93,8 +95,8 @@ describe('User Registration', function () {
         ]);
     });
 
-    test('Invalid name and email are rejected', function ($userData, $errors) {
-        $response = $this->withHeader('origin', 'http://localhost:5173')
+    test('Invalid data is rejected', function ($userData, $errors) {
+        $response = withHeader('origin', 'http://localhost:5173')
             ->postJson('/api/register', array_merge(validRegistrationData(
                 ['name' => '', 'email' => '']
             ), $userData));
