@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreConversationRequest;
 use App\Http\Requests\UpdateConversationRequest;
-use App\Models\Conversation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -52,12 +51,12 @@ class ConversationController extends Controller
     public function update(UpdateConversationRequest $request, string $conversation)
     {
         $conversation = $request->user()
-            ->conversation()
+            ->conversations()
             ->findOrFail($conversation);
 
         $conversation->update(
-            [ 'title' => $request->validated('title')
-        ]);
+            ['title' => $request->validated('title'),
+            ]);
 
         return $conversation;
     }

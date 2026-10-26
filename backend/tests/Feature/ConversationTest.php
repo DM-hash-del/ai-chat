@@ -8,8 +8,10 @@ use Illuminate\Support\Str;
 use function Pest\Laravel\actingAs;
 use function Pest\Laravel\assertDatabaseCount;
 use function Pest\Laravel\assertDatabaseHas;
+use function Pest\Laravel\assertDatabaseMissing;
+use function Pest\Laravel\getJson;
+use function Pest\Laravel\patchJson;
 use function Pest\Laravel\postJson;
-use function Pest\Laravel\withHeader;
 
 describe('Conversation Index Endpoint', function () {
 
@@ -137,26 +139,152 @@ describe('Conversation Store Endpoint', function () {
 function makeConversationWithMessages(User $user, int $count)
 {
     $conversation = Conversation::factory()->for($user)->create();
-    Message::factory($count)->for($conversation)->create();
+    Message::factory($count)->for($conversation)->create([
+        'content' => 'Test message',
+        'role' => 'user',
+    ]);
+
     return $conversation;
 }
 
 describe('Conversation Show Endpoint', function () {
     beforeEach(function () {
-        withHeader('origin', 'http://localhost:5173');
-        $this->userOne = User::factory()->create(['email' => 'userOne@example.com']);
-        $this->userTwo = User::factory()->create(['email' => 'userTwo@example.com']);
-        $this->userThree = User::factory()->create(['email' => 'userThree@example.com']);
-
+        $this->userA = User::factory()->create(['email' => 'userA@example.com']);
+        $this->userB = User::factory()->create(['email' => 'userB@example.com']);
+        $this->userC = User::factory()->create(['email' => 'userC@example.com']);
     });
 
     test('returns a users conversation with messsages', function () {
-        $conversation = makeConversationWithMessages($this->userOne, 3);
-        $response = actingAs($this->userOne)->getJson("/api/conversations/{$conversation->id}");
-        $response->dump();
+        $conversation = makeConversationWithMessages($this->userA, 3);
+        $responseA = actingAs($this->userA)->getJson("/api/conversations/{$conversation->id}");
+
+        $dataA = $responseA->json();
+
         assertDatabaseCount('messages', 3);
         assertDatabaseCount('users', 3);
-        // Should probably check the response shape
+        $responseA->assertJsonStructure([
+            'id',
+            'title',
+            'messages' => [
+                '*' => [
+                    'id',
+                    'content',
+                ],
+            ],
+        ]);
+        expect($dataA)->toBeArray();
+        expect($dataA['messages'])->toBeArray();
+        expect($dataA['messages'][0]['content'])->toBe('Test message');
+        expect($dataA['messages'][0]['role'])->toBe('user');
+        expect($dataA['messages'])->toHaveCount(3);
+        $messageIds = collect($dataA['messages'])->pluck('id')->toArray();
+        expect($messageIds)->toEqual([1, 2, 3]);
+
+        $responseB = actingAs($this->userB)->getJson("/api/conversations/{$conversation->id}");
+        $responseB->assertStatus(404);
+
+        $responseC = getJson("/api/conversations/{$conversation->id}");
+        $responseC->assertStatus(404);
     });
 
+});
+
+describe('Conversation Update Endpoint', function () {
+
+    test('updates users conversation title', function () {
+        $user = User::factory()->create();
+        $conversation = Conversation::factory()->for($user)->create([
+            'title' => 'original title',
+        ]);
+        $response = actingAs($user)->patchJson("/api/conversations/{$conversation->id}", [
+            'title' => 'updated title',
+        ]);
+        $response->assertStatus(200);
+        assertDatabaseHas('conversations', [
+            'id' => $conversation->id,
+            'title' => 'updated title',
+        ]);
+    });
+
+    test('can\'t update another users conversation', function () {
+        $userA = User::factory()->create();
+        $userB = User::factory()->create();
+        $userBConversation = Conversation::factory()->for($userB)->create([
+            'title' => 'user b conversation',
+        ]);
+        $malicousResponse = actingAs($userA)->patchJson("/api/conversations/{$userBConversation->id}", [
+            'title' => 'user a hijack',
+        ]);
+        $malicousResponse->assertStatus(404);
+        assertDatabaseHas('conversations', [
+            'id' => $userBConversation->id,
+            'title' => 'user b conversation',
+        ]);
+    });
+
+    test('title validation', function ($content) {
+        $user = User::factory()->create();
+        $conversation = Conversation::factory()->for($user)->create([
+            'title' => 'first title',
+        ]);
+        $response = actingAs($user)->patchJson("/api/conversations/{$conversation->id}");
+        $response->assertStatus(422);
+    })->with(
+        ['title' => null],
+        ['title' => str_repeat('a', 256)],
+        ['title' => ''],
+        ['title' => str_repeat('b', 255)]
+    );
+
+    test('returns 401 for guest', function () {
+        $user = User::factory()->create();
+        $conversation = Conversation::factory()->for($user)->create();
+        $response = patchJson("/api/conversations/{$conversation->id}", [
+            'title' => 'guest title',
+        ]);
+
+        $response->assertStatus(401);
+    });
+});
+
+describe('Conversation Delete Endpoint', function () {
+
+    test('allows users to delete conversations', function () {
+        $user = User::factory()->create();
+        $conversation = Conversation::factory()->for($user)->create();
+        Message::factory()->for($conversation)->count(5)->create();
+
+        assertDatabaseHas('conversations', ['id' => $conversation->id]);
+
+        $response = actingAs($user)->deleteJson("/api/conversations/{$conversation->id}");
+
+        $response->assertStatus(204);
+
+        assertDatabaseMissing('conversations', ['id' => $conversation->id]);
+        assertDatabaseMissing('messages', ['conversation_id' => $conversation->id]);
+    });
+
+    test('doesn\'t allow deletion of another users conversations', function () {
+        $userA = User::factory()->create();
+        $userB = User::factory()->create();
+
+        $userAConversation = Conversation::factory()->for($userA)->create();
+        Message::factory()->for($userAConversation)->count(3)->create();
+        $userA->usageLogs()->create([
+            'user_id' => $userA->id,
+            'input_tokens' => 100,
+            'output_tokens' => 200,
+            'model' => 'gpt-6-luna',
+        ]);
+
+        $userBConversation = Conversation::factory()->for($userB)->create();
+        Message::factory()->for($userBConversation)->count(2)->create();
+
+        $resA = actingAs($userA)->deleteJson("/api/conversations/{$userBConversation->id}");
+
+        $resA->assertStatus(404);
+        assertDatabaseHas('conversations', ['id' => $userAConversation->id]);
+        assertDatabaseHas('messages', ['conversation_id' => $userAConversation->id]);
+        assertDatabasehas('usage_logs', ['user_id' => $userA->id]);
+    });
 });
