@@ -35,4 +35,14 @@ return [
         ],
     ],
 
+    'openai' => [
+        'api_key' => env('OPENAI_API_KEY'),
+        'model' => env('OPENAI_MODEL'),
+        'max_output_tokens' => env('OPENAI_MAX_OUTPUT_TOKENS'),
+    ],
+    'credits' => [
+        'free' => env('FREE_TIER_CREDITS'),
+        'pro' => env('PRO_TIER_CREDITS'),
+    ],
+
 ];

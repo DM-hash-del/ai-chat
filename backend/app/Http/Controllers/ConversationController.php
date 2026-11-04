@@ -25,6 +25,9 @@ class ConversationController extends Controller
      */
     public function store(StoreConversationRequest $request)
     {
+        // check credits
+
+        
         $content = $request->input('content');
         $title = Str::limit($content, 50);
 

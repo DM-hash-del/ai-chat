@@ -222,7 +222,7 @@ describe('Conversation Update Endpoint', function () {
         ]);
     });
 
-    test('title validation', function ($content) {
+    test('title validation', function ($title) {
         $user = User::factory()->create();
         $conversation = Conversation::factory()->for($user)->create([
             'title' => 'first title',
@@ -230,10 +230,10 @@ describe('Conversation Update Endpoint', function () {
         $response = actingAs($user)->patchJson("/api/conversations/{$conversation->id}");
         $response->assertStatus(422);
     })->with(
-        ['title' => null],
-        ['title' => str_repeat('a', 256)],
-        ['title' => ''],
-        ['title' => str_repeat('b', 255)]
+        ['missing title' => null],
+        ['overlong title' => str_repeat('a', 256)],
+        ['empty title' => ''],
+        ['boundary title' => str_repeat('b', 255)]
     );
 
     test('returns 401 for guest', function () {
