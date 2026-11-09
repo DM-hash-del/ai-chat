@@ -2,11 +2,9 @@
 
 namespace App\Services;
 
-use App\Services\AiClientService;
-use App\Services\CreditsService;
-use App\Models\User;
-use App\Models\Conversation;
 use App\Exceptions\InsufficientCredits;
+use App\Models\Conversation;
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
 class ChatService
@@ -17,27 +15,42 @@ class ChatService
     public function __construct(
         protected AiClientService $aiClientService,
         protected CreditsService $creditsService,
-    ){
+    ) {
         //
     }
 
-    public function sendMessage(User $user, Conversation $conversation, string $content)
+    /**
+     * Throw when the user has no credits left today.
+     *
+     * @throws InsufficientCredits
+     */
+    public function ensureHasCredits(User $user): void
     {
-        // check credits
         $remainingCredits = $this->creditsService->remainingCredits($user);
 
         if ($remainingCredits <= 0) {
             throw new InsufficientCredits(
                 message: 'Insufficient credits',
-                internalMessage: 'Provider Returned: ' . $remainingCredits,
+                internalMessage: 'Provider Returned: '.$remainingCredits,
             );
         }
+    }
 
-        // Save the user's message to conversation
-        $userMessage = $conversation->messages()->create([
-            'content' => $content,
-            'role' => 'user',
-        ]);
+    public function sendMessage(User $user, Conversation $conversation, string $content)
+    {
+        $this->ensureHasCredits($user);
+
+        // Reuse the user's message if the previous attempt with the same content got no reply
+        $lastMessage = $conversation->messages()->reorder()->latest('id')->first();
+
+        if ($lastMessage?->role === 'user' && $lastMessage->content === $content) {
+            $userMessage = $lastMessage;
+        } else {
+            $userMessage = $conversation->messages()->create([
+                'content' => $content,
+                'role' => 'user',
+            ]);
+        }
 
         // Load the conversation messages to send to ai
         $messages = $conversation->messages()
@@ -58,7 +71,7 @@ class ChatService
                 'content' => $response['content'],
                 'role' => 'assistant',
             ]);
-    
+
             // log usage to credits service
             $this->creditsService->logUsage($user, $outputTokens, $inputTokens);
 

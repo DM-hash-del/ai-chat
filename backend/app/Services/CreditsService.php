@@ -1,8 +1,9 @@
 <?php
 
 namespace App\Services;
-use App\Models\User;
+
 use App\Exceptions\InvalidTier;
+use App\Models\User;
 use Carbon\Carbon;
 
 class CreditsService
@@ -18,21 +19,29 @@ class CreditsService
     /**
      * Crdits are tokens divided by 1000
      */
-    public function remainingCredits(User $user): float | int
+    public function remainingCredits(User $user): float|int
+    {
+        return $this->dailyAllowance($user) - $this->getUsage($user);
+    }
+
+    /**
+     * The number of credits the user's tier allows per day.
+     *
+     * @throws InvalidTier
+     */
+    public function dailyAllowance(User $user): float|int
     {
         $tier = $user->tier ?? 'free';
 
-        $credits = config('services.credits.' . $tier);
+        $credits = config('services.credits.'.$tier);
         if (is_null($credits)) {
             throw new InvalidTier(
                 message: 'Invalid tier',
-                internalMessage: 'Tier not found in config: ' . $tier,
+                internalMessage: 'Tier not found in config: '.$tier,
             );
         }
 
-        $total = $this->getUsage($user);
-
-        return $credits - $total;
+        return $credits + 0;
     }
 
     /**

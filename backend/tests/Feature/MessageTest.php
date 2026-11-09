@@ -1,18 +1,22 @@
 <?php
 
-use App\Models\User;
 use App\Models\Conversation;
+use App\Models\Message;
+use App\Models\User;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+
 use function Pest\Laravel\actingAs;
 use function Pest\Laravel\assertDatabaseCount;
 use function Pest\Laravel\assertDatabaseHas;
-use Illuminate\Http\Client\Request;
+use function Pest\Laravel\assertDatabaseMissing;
 
 describe('MessageController', function () {
     beforeEach(function () {
         Http::preventStrayRequests();
         $this->model = config('services.openai.model');
         $this->maxOutputTokens = config('services.openai.max_output_tokens');
+        config(['services.credits.free' => 10]);
     });
 
     describe('store', function () {
@@ -28,7 +32,7 @@ describe('MessageController', function () {
             ]);
 
             Http::fake([
-                'https://api.openai.com/v1/response' => Http::response([
+                'https://api.openai.com/v1/responses' => Http::response([
                     'id' => 'resp_test',
                     'object' => 'response',
                     'status' => 'completed',
@@ -64,7 +68,7 @@ describe('MessageController', function () {
                         [
                             'role' => 'user',
                             'content' => 'Hello, world!',
-                        ]
+                        ],
                     ] &&
                     $request['max_output_tokens'] == $this->maxOutputTokens;
             });
@@ -114,7 +118,96 @@ describe('MessageController', function () {
                 'model' => $this->model,
             ]);
         });
-        
+
+        it('returns the newly created messages when the conversation has history', function () {
+            $user = User::factory()->create();
+            $conversation = Conversation::factory()->for($user)->create();
+            Message::factory()->for($conversation)->create(['role' => 'user', 'content' => 'Earlier question']);
+            Message::factory()->for($conversation)->create(['role' => 'assistant', 'content' => 'Earlier answer']);
+            Http::fake([
+                'https://api.openai.com/v1/responses' => Http::response(openAiResponse('New answer'), 200),
+            ]);
+
+            $response = actingAs($user)->postJson("/api/conversations/{$conversation->id}/messages", [
+                'content' => 'New question',
+            ]);
+
+            $response->assertStatus(201);
+            $newUserMessage = Message::where('content', 'New question')->sole();
+            $newAssistantMessage = Message::where('content', 'New answer')->sole();
+            $response->assertJsonPath('user_message.id', $newUserMessage->id);
+            $response->assertJsonPath('user_message.content', 'New question');
+            $response->assertJsonPath('assistant_message.id', $newAssistantMessage->id);
+            $response->assertJsonPath('assistant_message.content', 'New answer');
+        });
+
+        it('returns 502 without a conversation id when the AI fails', function () {
+            $user = User::factory()->create();
+            $conversation = Conversation::factory()->for($user)->create();
+            Http::fake([
+                'https://api.openai.com/v1/responses' => Http::response([], 500),
+            ]);
+
+            $response = actingAs($user)->postJson("/api/conversations/{$conversation->id}/messages", [
+                'content' => 'Hello, world!',
+            ]);
+
+            $response->assertStatus(502);
+            $response->assertExactJson(['message' => 'Failed to send message to AI']);
+            assertDatabaseHas('messages', ['role' => 'user', 'content' => 'Hello, world!']);
+            assertDatabaseMissing('messages', ['role' => 'assistant']);
+        });
+
+        it('reuses the saved user message when sending the same content again after a failure', function () {
+            $user = User::factory()->create();
+            $conversation = Conversation::factory()->for($user)->create();
+            Http::fake([
+                'https://api.openai.com/v1/responses' => Http::sequence()
+                    ->push([], 500)
+                    ->push(openAiResponse(), 200),
+            ]);
+
+            actingAs($user)->postJson("/api/conversations/{$conversation->id}/messages", [
+                'content' => 'Hello, world!',
+            ])->assertStatus(502);
+            $savedUserMessage = Message::where('role', 'user')->sole();
+
+            $retry = actingAs($user)->postJson("/api/conversations/{$conversation->id}/messages", [
+                'content' => 'Hello, world!',
+            ]);
+
+            $retry->assertStatus(201);
+            $retry->assertJsonPath('user_message.id', $savedUserMessage->id);
+            expect(Message::where('role', 'user')->count())->toBe(1);
+            expect(Message::where('role', 'assistant')->count())->toBe(1);
+            Http::assertSentCount(2);
+            [$retryRequest] = Http::recorded()->last();
+            expect($retryRequest['input'])->toBe([
+                ['role' => 'user', 'content' => 'Hello, world!'],
+            ]);
+        });
+
+        it('saves a new user message when different content is sent after a failure', function () {
+            $user = User::factory()->create();
+            $conversation = Conversation::factory()->for($user)->create();
+            Http::fake([
+                'https://api.openai.com/v1/responses' => Http::sequence()
+                    ->push([], 500)
+                    ->push(openAiResponse(), 200),
+            ]);
+
+            actingAs($user)->postJson("/api/conversations/{$conversation->id}/messages", [
+                'content' => 'First try',
+            ])->assertStatus(502);
+
+            actingAs($user)->postJson("/api/conversations/{$conversation->id}/messages", [
+                'content' => 'Something else',
+            ])->assertStatus(201);
+
+            expect(Message::where('role', 'user')->pluck('content')->all())
+                ->toBe(['First try', 'Something else']);
+        });
+
         it('should error for invalid content', function ($content) {
             $user = User::factory()->create([
                 'email' => 'test@example.com',
@@ -125,7 +218,7 @@ describe('MessageController', function () {
                 'title' => 'Test Conversation',
             ]);
 
-            $response = actingAs($user)->postJson('/api/conversations/' . $conversation->id . '/messages', [
+            $response = actingAs($user)->postJson('/api/conversations/'.$conversation->id.'/messages', [
                 'content' => $content,
             ])->assertStatus(422);
 
@@ -133,11 +226,42 @@ describe('MessageController', function () {
 
             assertDatabaseCount('messages', 0);
 
-        })->with(
-            ['missing content' => null],
-            ['overlong content' => str_repeat('a', 4001)],
-            ['empty content' => ''],
-            ['boundary content' => str_repeat('b', 4000)]
-        );
+        })->with([
+            'missing content' => null,
+            'overlong content' => str_repeat('a', 4001),
+            'empty content' => '',
+        ]);
+
+        it('accepts content at the 4000 character limit', function () {
+            $user = User::factory()->create();
+            $conversation = Conversation::factory()->for($user)->create();
+            Http::fake([
+                'https://api.openai.com/v1/responses' => Http::response(openAiResponse(), 200),
+            ]);
+
+            actingAs($user)->postJson("/api/conversations/{$conversation->id}/messages", [
+                'content' => str_repeat('b', 4000),
+            ])->assertStatus(201);
+        });
+
+        it('returns 502 when the AI reply has no message content', function () {
+            $user = User::factory()->create();
+            $conversation = Conversation::factory()->for($user)->create();
+            Http::fake([
+                'https://api.openai.com/v1/responses' => Http::response([
+                    'id' => 'resp_test',
+                    'output' => [],
+                    'usage' => ['input_tokens' => 12, 'output_tokens' => 0],
+                ], 200),
+            ]);
+
+            $response = actingAs($user)->postJson("/api/conversations/{$conversation->id}/messages", [
+                'content' => 'Hello, world!',
+            ]);
+
+            $response->assertStatus(502);
+            $response->assertExactJson(['message' => 'Failed to send message to AI']);
+            assertDatabaseMissing('messages', ['role' => 'assistant']);
+        });
     });
 });

@@ -2,7 +2,6 @@
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
-use Illuminate\Support\Facades\Http;
 
 /*
 |--------------------------------------------------------------------------
@@ -48,4 +47,33 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+/**
+ * Build a fake OpenAI Responses API body with a single message.
+ *
+ * @return array<string, mixed>
+ */
+function openAiResponse(string $text = 'Hello, from the test!', int $inputTokens = 12, int $outputTokens = 34): array
+{
+    return [
+        'id' => 'resp_test',
+        'object' => 'response',
+        'status' => 'completed',
+        'output' => [
+            [
+                'type' => 'message',
+                'content' => [
+                    [
+                        'type' => 'output_text',
+                        'text' => $text,
+                    ],
+                ],
+            ],
+        ],
+        'usage' => [
+            'input_tokens' => $inputTokens,
+            'output_tokens' => $outputTokens,
+        ],
+    ];
 }

@@ -2,8 +2,8 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Http;
 use App\Exceptions\FailedAiResponse;
+use Illuminate\Support\Facades\Http;
 
 class AiClientService
 {
@@ -27,18 +27,18 @@ class AiClientService
                 'input' => $messages,
                 'max_output_tokens' => config('services.openai.max_output_tokens'),
             ]);
-            
+
             if ($response->failed()) {
                 throw new FailedAiResponse(
                     message: 'Failed to send message to AI',
-                    internalMessage: 'Provider Returned: ' . $response->status() . ' ' . $response->body(),
+                    internalMessage: 'Provider Returned: '.$response->status().' '.$response->body(),
                 );
-            };
+            }
         } catch (\Exception $e) {
             // For a timeout exception, we want to throw a more user friendly error
             throw new FailedAiResponse(
                 message: 'Failed to send message to AI',
-                internalMessage: 'Provider Returned: ' . $e->getMessage(),
+                internalMessage: 'Provider Returned: '.$e->getMessage(),
             );
         }
 
@@ -52,9 +52,9 @@ class AiClientService
         if (is_null($content)) {
             throw new FailedAiResponse(
                 message: 'Failed to get content from AI',
-                internalMessage: 'Provider Returned response with no message content: ' . $data,
+                internalMessage: 'Provider Returned response with no message content: '.json_encode($data),
             );
-        };
+        }
 
         return [
             'content' => data_get(

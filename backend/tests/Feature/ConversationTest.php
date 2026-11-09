@@ -3,6 +3,7 @@
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 use function Pest\Laravel\actingAs;
@@ -54,8 +55,99 @@ describe('Conversation Index Endpoint', function () {
 });
 
 describe('Conversation Store Endpoint', function () {
+    beforeEach(function () {
+        Http::preventStrayRequests();
+        config(['services.credits.free' => 10]);
+    });
+
+    test('returns the user message and the assistant reply', function () {
+        Http::fake([
+            'https://api.openai.com/v1/responses' => Http::response(openAiResponse(), 200),
+        ]);
+        $user = User::factory()->create();
+
+        $response = actingAs($user)->postJson('/api/conversations', [
+            'content' => 'Hello, world!',
+        ]);
+
+        $response->assertStatus(201);
+        $response->assertJsonCount(2, 'messages');
+        $response->assertJsonPath('messages.0.role', 'user');
+        $response->assertJsonPath('messages.0.content', 'Hello, world!');
+        $response->assertJsonPath('messages.1.role', 'assistant');
+        $response->assertJsonPath('messages.1.content', 'Hello, from the test!');
+        expect(Message::where('role', 'user')->count())->toBe(1);
+        assertDatabaseHas('usage_logs', [
+            'user_id' => $user->id,
+            'input_tokens' => 12,
+            'output_tokens' => 34,
+        ]);
+    });
+
+    test('keeps the conversation and returns its id when the AI fails', function () {
+        Http::fake([
+            'https://api.openai.com/v1/responses' => Http::response([], 500),
+        ]);
+        $user = User::factory()->create();
+
+        $response = actingAs($user)->postJson('/api/conversations', [
+            'content' => 'Hello, world!',
+        ]);
+
+        $conversation = Conversation::sole();
+        $response->assertStatus(502);
+        $response->assertExactJson([
+            'message' => 'Failed to send message to AI',
+            'conversation_id' => $conversation->id,
+        ]);
+        expect($conversation->user_id)->toBe($user->id);
+        assertDatabaseCount('messages', 1);
+        assertDatabaseHas('messages', [
+            'conversation_id' => $conversation->id,
+            'role' => 'user',
+            'content' => 'Hello, world!',
+        ]);
+        assertDatabaseMissing('messages', ['role' => 'assistant']);
+    });
+
+    test('sending again after an AI failure saves the user message once', function () {
+        Http::fake([
+            'https://api.openai.com/v1/responses' => Http::sequence()
+                ->push([], 500)
+                ->push(openAiResponse(), 200),
+        ]);
+        $user = User::factory()->create();
+
+        $failed = actingAs($user)->postJson('/api/conversations', [
+            'content' => 'Hello, world!',
+        ])->assertStatus(502);
+
+        actingAs($user)->postJson("/api/conversations/{$failed->json('conversation_id')}/messages", [
+            'content' => 'Hello, world!',
+        ])->assertStatus(201);
+
+        expect(Message::where('role', 'user')->count())->toBe(1);
+        expect(Message::where('role', 'assistant')->count())->toBe(1);
+    });
+
+    test('returns 429 and saves nothing when the user has no credits', function () {
+        config(['services.credits.free' => 0]);
+        $user = User::factory()->create();
+
+        $response = actingAs($user)->postJson('/api/conversations', [
+            'content' => 'Hello, world!',
+        ]);
+
+        $response->assertStatus(429);
+        assertDatabaseCount('conversations', 0);
+        assertDatabaseCount('messages', 0);
+        Http::assertNothingSent();
+    });
 
     test('creates a new conversation for the authenticated user', function () {
+        Http::fake([
+            'https://api.openai.com/v1/responses' => Http::response(openAiResponse(), 200),
+        ]);
         $user = User::factory()->create();
         $content = fake()->sentence(300);
         $response = actingAs($user)->postJson('/api/conversations', [
@@ -80,6 +172,9 @@ describe('Conversation Store Endpoint', function () {
     });
 
     test('produces a title equal to short content', function () {
+        Http::fake([
+            'https://api.openai.com/v1/responses' => Http::response(openAiResponse(), 200),
+        ]);
         $user = User::factory()->create();
         $content = fake()->sentence(4);
         $response = actingAs($user)->postJson('/api/conversations', [
@@ -91,6 +186,9 @@ describe('Conversation Store Endpoint', function () {
     });
 
     test('produces a title equal to first 50 characters of long content', function () {
+        Http::fake([
+            'https://api.openai.com/v1/responses' => Http::response(openAiResponse(), 200),
+        ]);
         $user = User::factory()->create();
         $content = fake()->sentence(100);
         $response = actingAs($user)->postJson('/api/conversations', [
@@ -118,6 +216,9 @@ describe('Conversation Store Endpoint', function () {
     ]);
 
     test('boundary test for content length', function () {
+        Http::fake([
+            'https://api.openai.com/v1/responses' => Http::response(openAiResponse(), 200),
+        ]);
         $user = User::factory()->create();
         $content = str_repeat('a', 4000);
         $response = actingAs($user)->postJson('/api/conversations', [
@@ -227,14 +328,38 @@ describe('Conversation Update Endpoint', function () {
         $conversation = Conversation::factory()->for($user)->create([
             'title' => 'first title',
         ]);
-        $response = actingAs($user)->patchJson("/api/conversations/{$conversation->id}");
+        $response = actingAs($user)->patchJson("/api/conversations/{$conversation->id}", [
+            'title' => $title,
+        ]);
         $response->assertStatus(422);
-    })->with(
-        ['missing title' => null],
-        ['overlong title' => str_repeat('a', 256)],
-        ['empty title' => ''],
-        ['boundary title' => str_repeat('b', 255)]
-    );
+        $response->assertJsonValidationErrors(['title']);
+        assertDatabaseHas('conversations', [
+            'id' => $conversation->id,
+            'title' => 'first title',
+        ]);
+    })->with([
+        'missing title' => null,
+        'overlong title' => str_repeat('a', 256),
+        'empty title' => '',
+    ]);
+
+    test('accepts a title at the 255 character limit', function () {
+        $user = User::factory()->create();
+        $conversation = Conversation::factory()->for($user)->create([
+            'title' => 'first title',
+        ]);
+        $title = str_repeat('b', 255);
+
+        $response = actingAs($user)->patchJson("/api/conversations/{$conversation->id}", [
+            'title' => $title,
+        ]);
+
+        $response->assertStatus(200);
+        assertDatabaseHas('conversations', [
+            'id' => $conversation->id,
+            'title' => $title,
+        ]);
+    });
 
     test('returns 401 for guest', function () {
         $user = User::factory()->create();

@@ -2,10 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\FailedAiResponse;
 use App\Http\Requests\StoreConversationRequest;
 use App\Http\Requests\UpdateConversationRequest;
+use App\Services\ChatService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class ConversationController extends Controller
@@ -23,25 +24,24 @@ class ConversationController extends Controller
     /**
      * Create a single conversation along with the initial message
      */
-    public function store(StoreConversationRequest $request)
+    public function store(StoreConversationRequest $request, ChatService $chat)
     {
-        // check credits
-
-        
+        $user = $request->user();
         $content = $request->input('content');
-        $title = Str::limit($content, 50);
 
-        return DB::transaction(function () use ($request, $content, $title) {
-            $conversation = $request->user()->conversations()->create([
-                'title' => $title,
-            ]);
-            $conversation->messages()->create([
-                'content' => $content,
-                'role' => 'user',
-            ]);
+        $chat->ensureHasCredits($user);
 
-            return response()->json($conversation->load('messages'), 201);
-        });
+        $conversation = $user->conversations()->create([
+            'title' => Str::limit($content, 50),
+        ]);
+
+        try {
+            $chat->sendMessage($user, $conversation, $content);
+        } catch (FailedAiResponse $e) {
+            throw new FailedAiResponse($e->getMessage(), $e->internalMessage, $conversation->id);
+        }
+
+        return response()->json($conversation->load('messages'), 201);
     }
 
     public function show(Request $request, string $conversation)
