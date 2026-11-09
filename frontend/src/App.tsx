@@ -1,28 +1,16 @@
-import { useState, useEffect } from 'react'
-import './App.css'
-import api from './lib/api'
+import { Route, Routes } from 'react-router'
+import { ChatPage } from '@/pages/ChatPage'
+import { LoginPage } from '@/pages/LoginPage'
+import { RegisterPage } from '@/pages/RegisterPage'
 
 function App() {
-    const [res, setRes] = useState()
-    const [error, setError] = useState()
-    useEffect(() => {
-        api.get('/api/ping')
-            .then((data) => setRes(data.data))
-            .catch((err) => setError(err))
-    }, [])
-
-    const num = 0
-
     return (
-        <div>
-            {error ? (
-                <p>Error: {JSON.stringify(error)}</p>
-            ) : res ? (
-                <p>{JSON.stringify(res)}</p>
-            ) : (
-                <p>Loading...</p>
-            )}
-        </div>
+        <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/" element={<ChatPage />} />
+            <Route path="/c/:id" element={<ChatPage />} />
+        </Routes>
     )
 }
 
