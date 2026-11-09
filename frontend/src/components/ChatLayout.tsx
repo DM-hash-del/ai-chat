@@ -1,11 +1,15 @@
 import { Thread } from '@/components/assistant-ui/elements/thread.aui'
 import { ThreadList } from '@/components/assistant-ui/elements/thread-list.aui'
+import { UserMenu } from '@/components/UserMenu'
 
 export function ChatLayout() {
     return (
         <div className="flex h-dvh">
-            <aside className="bg-sidebar w-64 shrink-0 overflow-y-auto border-r p-2">
-                <ThreadList />
+            <aside className="bg-sidebar flex w-64 shrink-0 flex-col border-r">
+                <div className="min-h-0 flex-1 overflow-y-auto p-2">
+                    <ThreadList />
+                </div>
+                <UserMenu />
             </aside>
             <main className="min-w-0 flex-1">
                 <Thread />
