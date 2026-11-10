@@ -26,7 +26,7 @@ Lives at `docs/frontend-plan.md` (project root). Claude Code in the frontend roo
 | Icons | Lucide (`lucide-react`) only, since shadcn and assistant-ui already use it |
 | Look | Light theme only (remove dark variants), shadcn neutral palette, no custom animations |
 | Markdown | assistant-ui's markdown component for assistant replies; **raw HTML rendering stays off** |
-| Failed AI reply | Show an error under the user's message; user sends again by typing. No retry button |
+| Failed AI reply | Derived from the data: if the last message is from the user and nothing is running, it has no reply. Show a notice there; sending the same text again reuses the saved message (backend "send again" rule). No automatic retry button in v1 |
 | Streaming | Not in v1 |
 
 ---
@@ -87,7 +87,10 @@ Lives at `docs/frontend-plan.md` (project root). Claude Code in the frontend roo
 - **New chat** (`/`, no conversation id): sending calls `POST /api/conversations`, then navigates to `/c/{id}` without reloading.
 - **Existing chat** (`/c/:id`): load with `GET /api/conversations/{id}`; sending calls `POST /api/conversations/{id}/messages` and **appends only the new messages it returns**.
 - On send: show the user's message straight away with a temporary id, set `isRunning` (assistant-ui shows its loading indicator), then replace the temporary message with the real ones from the response.
-- On failure: keep the user's message on screen with the error under it; the composer is usable again.
+- **Merging returned messages:** the messages endpoint returns `user_message` + `assistant_message`. If `user_message.id` already exists in state (the backend reused a failed message), **replace** that message instead of appending, so it never shows twice. Always remove the temporary optimistic message.
+- **Failure on a new chat:** a 502 from `POST /api/conversations` includes `conversation_id`. Navigate to `/c/{conversation_id}` so the user is in the saved conversation; any follow-up uses the messages endpoint.
+- **"No reply" state is derived, not stored:** when the last message has role `user` and nothing is running, show a short notice under it ("No reply. Send your message again to retry"). This also works after a refresh or navigation, because it comes from the data rather than from a one-off error in component state. Show the specific error text (502, 429, network) when you have it.
+- The composer stays usable after any failure.
 - Assistant replies render markdown with raw HTML disabled.
 - Sending is blocked while a reply is in progress (the runtime does this by default).
 
@@ -109,7 +112,7 @@ Lives at `docs/frontend-plan.md` (project root). Claude Code in the frontend roo
 
 ## Phase 5: Credits and polish
 
-- Show "credits left today" (from `GET /api/usage`) near the composer or in the sidebar; refetch after each reply.
+- Show "credits left today" (from `GET /api/usage`) near the composer or in the sidebar; refetch after each reply. `remaining` can be negative or fractional: display it as never below 0, rounded to one decimal place.
 - At 0 remaining or on a 429: disable sending (`isSendDisabled`) with a clear message.
 - Empty state for a new chat (a short welcome line), loading state while a conversation loads.
 - Copy-message button only if assistant-ui gives it for free.
@@ -133,3 +136,5 @@ Lives at `docs/frontend-plan.md` (project root). Claude Code in the frontend roo
 
 - Deployment: a refresh on `/c/42` in production needs the server to return the React `index.html` for non-API paths. Plan this when you set up cPanel.
 - Streaming, regenerate, model choice, attachments.
+- Sidebar order by last activity (`updated_at`) instead of creation date: needs the message model to update its conversation's timestamp, plus a one-word change to the list query.
+- Remove `GET /api/ping` before deploying, or leave it as a health check.

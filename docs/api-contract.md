@@ -67,7 +67,7 @@ A `messages` array is included only where noted below.
 | 422 | Validation failed | `{"message": "<first error>", "errors": {"<field>": ["<msg>", ...]}}` |
 | 429 | Login throttle | `{"message": "Too Many Attempts."}`, with a `Retry-After` header (seconds) |
 | 429 | No credits left today | `{"message": "Insufficient credits"}` |
-| 502 | The AI provider failed: an error status, a timeout (15 s) or a network error | `{"message": "Failed to send message to AI"}`; `POST /api/conversations` adds `"conversation_id"` |
+| 502 | The AI provider failed: an error status, a timeout (30 s) or a network error | `{"message": "Failed to send message to AI"}`; `POST /api/conversations` adds `"conversation_id"` |
 | 500 | Server error, including a user tier missing from config (`{"message": "Invalid tier"}`) | `{"message": "Server Error"}` |
 
 ---
