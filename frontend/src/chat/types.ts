@@ -1,5 +1,4 @@
 // Shapes returned by the Laravel API (see docs/api-contract.md).
-// Mock data in Phase 1 uses the same shapes so Phase 3 can swap in real data.
 
 export type MessageRole = 'user' | 'assistant'
 
@@ -18,4 +17,13 @@ export type Conversation = {
     title: string
     created_at: string
     updated_at: string
+}
+
+// GET /api/conversations/{id} and POST /api/conversations (201).
+export type ConversationWithMessages = Conversation & { messages: Message[] }
+
+// POST /api/conversations/{id}/messages (201).
+export type SendMessageResponse = {
+    user_message: Message
+    assistant_message: Message
 }

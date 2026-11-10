@@ -5,8 +5,8 @@ import axios from 'axios'
 // into the X-XSRF-TOKEN header on every POST, PATCH and DELETE.
 const api = axios.create({
     baseURL: '/',
-    // The backend gives the AI up to 15 s, so leave room above that.
-    timeout: 30000,
+    // The backend gives the AI up to 30 s, so leave room above that.
+    timeout: 45000,
     withCredentials: true,
     withXSRFToken: true,
     xsrfHeaderName: 'X-XSRF-TOKEN',
