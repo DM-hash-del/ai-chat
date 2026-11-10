@@ -36,12 +36,11 @@ const make = (
     extra: Partial<ApiError> = {}
 ): ApiError => ({ kind, message, fieldErrors: {}, ...extra })
 
+const NETWORK_MESSAGE = "Can't reach the server. Check your connection."
+
 export function toApiError(error: unknown): ApiError {
     if (!axios.isAxiosError<ErrorBody>(error) || !error.response) {
-        return make(
-            'network',
-            "Can't reach the server. Check your connection."
-        )
+        return make('network', NETWORK_MESSAGE)
     }
 
     const { status, data, headers } = error.response
@@ -83,10 +82,20 @@ export function toApiError(error: unknown): ApiError {
         case 404:
             return make('not_found', 'Not found.', { status })
         case 502:
+            // Laravel's own 502 ("Failed to send message to AI") is JSON with
+            // a message. A 502 without one comes from a proxy in front of
+            // Laravel (the Vite dev proxy when the backend is down).
+            if (typeof body.message !== 'string') {
+                return make('network', NETWORK_MESSAGE, { status })
+            }
             return make('ai_failed', "The AI couldn't respond, try again.", {
                 status,
                 conversationId: body.conversation_id,
             })
+        case 503:
+        case 504:
+            // Gateway errors: the server behind the proxy didn't answer.
+            return make('network', NETWORK_MESSAGE, { status })
         default:
             return make('server', 'Something went wrong on the server.', {
                 status,
