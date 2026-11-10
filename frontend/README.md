@@ -1,32 +1,15 @@
-# React + TypeScript + Vite
+# ai-chat frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A ChatGPT-style chat app built with React, TypeScript, Vite, Tailwind and assistant-ui. It talks to the Laravel API in `../backend`.
 
-Currently, two official plugins are available:
+## Commands
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- `npm run dev`: start the dev server. Open http://localhost:5173 (not 127.0.0.1, or the Sanctum cookie won't work). API requests go through the Vite proxy.
+- `npm run build`: type-check and build
+- `npm run lint`: lint with oxlint
 
-## React Compiler
+## Docs
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+- `CLAUDE.md`: project rules and how we work
+- `../docs/api-contract.md`: the backend API as the frontend sees it
+- `../docs/frontend-plan.md`: the phased build plan
