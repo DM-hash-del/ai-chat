@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router'
 import { toApiError, type ApiError, type ApiErrorKind } from '@/lib/api-errors'
 import { createConversation, getConversation, sendMessage } from './chat-api'
 import { mergeMessages } from './merge-messages'
-import type { Message } from './types'
+import type { ConversationWithMessages, Message } from './types'
 
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'not_found' | 'error'
 
@@ -34,13 +34,24 @@ const NOTHING_SAVED: readonly ApiErrorKind[] = [
     'not_found',
 ]
 
+// Lets the sidebar know a new conversation exists.
+export type ConversationListEvents = {
+    // POST /api/conversations succeeded: we have the conversation itself.
+    onCreated: (conversation: ConversationWithMessages) => void
+    // It was saved but the AI failed (502): we only know its id.
+    onCreatedWithoutReply: () => void
+}
+
 // "/" → null (new chat), "/c/7" → 7, "/c/abc" → 'invalid'.
 function parseRouteId(param: string | undefined): number | null | 'invalid' {
     if (param === undefined) return null
     return /^\d+$/.test(param) ? Number(param) : 'invalid'
 }
 
-export function useConversation(routeParam: string | undefined): ConversationState {
+export function useConversation(
+    routeParam: string | undefined,
+    { onCreated, onCreatedWithoutReply }: ConversationListEvents
+): ConversationState {
     const navigate = useNavigate()
     const routeId = parseRouteId(routeParam)
 
@@ -123,6 +134,8 @@ export function useConversation(routeParam: string | undefined): ConversationSta
             try {
                 if (conversationId === null) {
                     const conversation = await createConversation(text)
+                    // It exists on the server even if the user has moved on.
+                    onCreated(conversation)
                     if (gen !== generation.current) return
                     loadedId.current = conversation.id
                     setMessages((prev) =>
@@ -142,8 +155,11 @@ export function useConversation(routeParam: string | undefined): ConversationSta
                     )
                 }
             } catch (error: unknown) {
-                if (gen !== generation.current) return
                 const apiError = toApiError(error)
+                if (conversationId === null && apiError.conversationId !== undefined) {
+                    onCreatedWithoutReply()
+                }
+                if (gen !== generation.current) return
 
                 // A new chat failed at the AI step: the conversation and the
                 // message are saved. Open it; the page loads what was saved.
@@ -162,7 +178,7 @@ export function useConversation(routeParam: string | undefined): ConversationSta
                 if (gen === generation.current) setIsRunning(false)
             }
         },
-        [navigate]
+        [navigate, onCreated, onCreatedWithoutReply]
     )
 
     const currentId = typeof routeId === 'number' ? routeId : null

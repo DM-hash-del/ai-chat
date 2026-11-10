@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { DeleteConversationDialog } from "@/components/chat/DeleteConversationDialog";
 import {
   AuiIf,
   ThreadListItemMorePrimitive,
@@ -13,7 +14,6 @@ import {
   useAuiState,
 } from "@assistant-ui/react";
 import {
-  ArchiveIcon,
   Loader2Icon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -33,7 +33,9 @@ import {
   type FC,
 } from "react";
 
-export const ThreadList: FC = () => {
+// showEmpty: false hides the "No conversations yet" line (e.g. when the list
+// failed to load and the sidebar already shows an error).
+export const ThreadList: FC<{ showEmpty?: boolean }> = ({ showEmpty = true }) => {
   const [search, setSearch] = useState("");
   const hasThreads = useAuiState((s) => s.threads.threadIds.length > 0);
 
@@ -43,7 +45,10 @@ export const ThreadList: FC = () => {
       {hasThreads && (
         <ThreadListSearch value={search} onValueChange={setSearch} />
       )}
-      <ThreadListItems searchQuery={hasThreads ? search : ""} />
+      <ThreadListItems
+        searchQuery={hasThreads ? search : ""}
+        showEmpty={showEmpty}
+      />
     </ThreadListRoot>
   );
 };
@@ -66,8 +71,8 @@ export const ThreadListSearch = forwardRef<
         type="search"
         value={value}
         onChange={(event) => onValueChange(event.target.value)}
-        aria-label="Search threads"
-        placeholder="Search threads"
+        aria-label="Search chats"
+        placeholder="Search chats"
         className={cn("h-8 ps-8 text-sm", className)}
         {...props}
       />
@@ -90,8 +95,8 @@ export const ThreadListRoot: FC<
 };
 
 export const ThreadListItems: FC<
-  ComponentPropsWithoutRef<"div"> & { searchQuery?: string }
-> = ({ className, searchQuery = "", ...props }) => {
+  ComponentPropsWithoutRef<"div"> & { searchQuery?: string; showEmpty?: boolean }
+> = ({ className, searchQuery = "", showEmpty = true, ...props }) => {
   return (
     <div
       data-slot="aui_thread-list-items"
@@ -102,7 +107,7 @@ export const ThreadListItems: FC<
         <ThreadListSkeleton />
       </AuiIf>
       <AuiIf condition={(s) => !s.threads.isLoading}>
-        <ThreadListItemGroups searchQuery={searchQuery} />
+        <ThreadListItemGroups searchQuery={searchQuery} showEmpty={showEmpty} />
       </AuiIf>
     </div>
   );
@@ -212,12 +217,25 @@ export const useThreadListGroups = (searchQuery = "") => {
   }, [threadIds, threadItems, query, startOfToday]);
 };
 
-const ThreadListItemGroups: FC<{ searchQuery?: string }> = ({
+const ThreadListItemGroups: FC<{ searchQuery?: string; showEmpty?: boolean }> = ({
   searchQuery = "",
+  showEmpty = true,
 }) => {
   const { threadIds, filteredIndices, groups } =
     useThreadListGroups(searchQuery);
   const query = searchQuery.trim();
+
+  if (!query && threadIds.length === 0) {
+    if (!showEmpty) return null;
+    return (
+      <div
+        data-slot="aui_thread-list-empty"
+        className="text-muted-foreground px-2.5 py-4 text-sm"
+      >
+        No conversations yet
+      </div>
+    );
+  }
 
   if (query && filteredIndices.length === 0) {
     return (
@@ -225,7 +243,7 @@ const ThreadListItemGroups: FC<{ searchQuery?: string }> = ({
         data-slot="aui_thread-list-empty"
         className="text-muted-foreground px-2.5 py-4 text-sm"
       >
-        No threads found
+        No chats found
       </div>
     );
   }
@@ -277,7 +295,7 @@ export const ThreadListNew = forwardRef<
                     data-slot="aui_thread-list-new-label"
                     className={cn("whitespace-nowrap", labelClassName)}
                   >
-                    New Thread
+                    New chat
                   </span>
                 </>
               )}</ThreadListPrimitive.New>
@@ -290,7 +308,7 @@ const ThreadListSkeleton: FC = () => {
   return (
     <div
       role="status"
-      aria-label="Loading threads"
+      aria-label="Loading conversations"
       className="flex flex-col gap-0.5"
     >
       {Array.from({ length: 5 }, (_, i) => (
@@ -313,6 +331,7 @@ const ThreadListSkeleton: FC = () => {
 export const ThreadListItem: FC = () => {
   const isRunning = useAuiState((s) => s.threadListItem.isRunning);
   const [isRenaming, setIsRenaming] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const restoreFocusRef = useRef(false);
 
@@ -351,12 +370,16 @@ export const ThreadListItem: FC = () => {
             data-slot="aui_thread-list-item-title"
             className="min-w-0 flex-1 truncate"
           >
-            <ThreadListItemPrimitive.Title fallback="New Chat" />
+            <ThreadListItemPrimitive.Title fallback="New chat" />
           </span>
           {isRunning && <span className="sr-only">Running</span>}
         </ThreadListItemPrimitive.Trigger>
       )}
-      <ThreadListItemMore onRename={() => setIsRenaming(true)} />
+      <ThreadListItemMore
+        onRename={() => setIsRenaming(true)}
+        onDelete={() => setIsDeleting(true)}
+      />
+      <DeleteConversationDialog open={isDeleting} onOpenChange={setIsDeleting} />
     </ThreadListItemPrimitive.Root>
   );
 };
@@ -407,7 +430,9 @@ const ThreadListItemRename: FC<{
       ref={inputRef}
       autoFocus
       data-slot="aui_thread-list-item-rename"
-      aria-label="Rename thread"
+      aria-label="Rename conversation"
+      // Same limit as the backend (title: max 255).
+      maxLength={255}
       value={value}
       className="h-7 min-w-0 flex-1 ps-2.5 pe-9 text-sm"
       onChange={(event) => setValue(event.target.value)}
@@ -427,7 +452,11 @@ const ThreadListItemRename: FC<{
   );
 };
 
-const ThreadListItemMore: FC<{ onRename: () => void }> = ({ onRename }) => {
+// No Archive item: the API has no archive. Delete opens a confirm dialog.
+const ThreadListItemMore: FC<{ onRename: () => void; onDelete: () => void }> = ({
+  onRename,
+  onDelete,
+}) => {
   return (
     <ThreadListItemMorePrimitive.Root sharedFocusGroup>
       <ThreadListItemMorePrimitive.Trigger render={<Button variant="ghost" size="icon" data-slot="aui_thread-list-item-more" className="data-[state=open]:bg-accent absolute end-1.5 top-1/2 size-6 -translate-y-1/2 p-0 opacity-0 group-hover:opacity-100 group-has-focus-visible:opacity-100 group-data-active:opacity-100 data-[state=open]:opacity-100" />}><MoreHorizontalIcon className="size-3.5" /><span className="sr-only">More options</span></ThreadListItemMorePrimitive.Trigger>
@@ -446,10 +475,14 @@ const ThreadListItemMore: FC<{ onRename: () => void }> = ({ onRename }) => {
           <PencilIcon className="size-4" />
           Rename
         </ThreadListItemMorePrimitive.Item>
-        <ThreadListItemPrimitive.Archive render={<ThreadListItemMorePrimitive.Item data-slot="aui_thread-list-item-more-item" className="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none" />}><ArchiveIcon className="size-4" />Archive
-                        </ThreadListItemPrimitive.Archive>
-        <ThreadListItemPrimitive.Delete render={<ThreadListItemMorePrimitive.Item data-slot="aui_thread-list-item-more-item" className="text-destructive hover:bg-destructive/10 hover:text-destructive focus:bg-destructive/10 focus:text-destructive flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none" />}><TrashIcon className="size-4" />Delete
-                        </ThreadListItemPrimitive.Delete>
+        <ThreadListItemMorePrimitive.Item
+          data-slot="aui_thread-list-item-more-item"
+          className="text-destructive hover:bg-destructive/10 hover:text-destructive focus:bg-destructive/10 focus:text-destructive flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none"
+          onSelect={onDelete}
+        >
+          <TrashIcon className="size-4" />
+          Delete
+        </ThreadListItemMorePrimitive.Item>
       </ThreadListItemMorePrimitive.Content>
     </ThreadListItemMorePrimitive.Root>
   );
