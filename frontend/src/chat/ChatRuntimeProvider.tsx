@@ -36,8 +36,15 @@ export function ChatRuntimeProvider({
     children,
 }: Props) {
     const navigate = useNavigate()
-    const { send, messages, isRunning, loadStatus, conversationId, sendError } =
-        conversation
+    const {
+        send,
+        retry,
+        messages,
+        isRunning,
+        loadStatus,
+        conversationId,
+        sendError,
+    } = conversation
     const { conversations, status: listStatus, rename, remove } = list
 
     // Lets onNew put text back in the composer after a send that saved nothing.
@@ -53,6 +60,12 @@ export function ChatRuntimeProvider({
         },
         [send]
     )
+
+    // The retry icon under a failed message. A temporary message that the
+    // server didn't save is removed, and its text goes back in the composer.
+    const onRetry = useCallback(() => {
+        void retry((unsent) => runtimeRef.current?.thread.composer.setText(unsent))
+    }, [retry])
 
     // The sidebar. assistant-ui draws it and calls these handlers; we call
     // Laravel and update our own state. The URL decides which conversation is
@@ -112,7 +125,10 @@ export function ChatRuntimeProvider({
         runtimeRef.current = runtime
     }, [runtime])
 
-    const status = useMemo(() => ({ sendError, usage }), [sendError, usage])
+    const status = useMemo(
+        () => ({ sendError, usage, retry: onRetry }),
+        [sendError, usage, onRetry]
+    )
 
     return (
         <AssistantRuntimeProvider runtime={runtime}>

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { toApiError, type ApiError, type ApiErrorKind } from '@/lib/api-errors'
 import { createConversation, getConversation, sendMessage } from './chat-api'
-import { mergeMessages } from './merge-messages'
+import { isTempMessage, mergeMessages } from './merge-messages'
 import type { ConversationWithMessages, Message } from './types'
 
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'not_found' | 'error'
@@ -20,6 +20,9 @@ export type ConversationState = {
     // Resolves when the send is finished. Calls onNotSent with the text when
     // the server saved nothing, so the caller can put it back in the composer.
     send: (text: string, onNotSent: (text: string) => void) => Promise<void>
+    // Sends the last message again when it got no reply (same text, so the
+    // backend reuses the saved message). Does nothing otherwise.
+    retry: (onNotSent: (text: string) => void) => Promise<void>
 }
 
 // Errors where the server saved nothing: the message can simply be removed.
@@ -71,6 +74,14 @@ export function useConversation(
     // for a previous conversation can be recognised and ignored.
     const generation = useRef(0)
     const nextTempId = useRef(-1)
+    // Latest values for retry(), so the callback doesn't change on every render.
+    const messagesRef = useRef<Message[]>(messages)
+    const isRunningRef = useRef(false)
+
+    useEffect(() => {
+        messagesRef.current = messages
+        isRunningRef.current = isRunning
+    }, [messages, isRunning])
 
     useEffect(() => {
         // We just created this conversation and navigated here ourselves:
@@ -116,12 +127,18 @@ export function useConversation(
             })
     }, [routeId])
 
-    const send = useCallback(
-        async (text: string, onNotSent: (text: string) => void) => {
+    // Shared by send and retry. `existing` is the message being sent again
+    // (retry); null means a new message, shown at once with a temporary id.
+    const submit = useCallback(
+        async (
+            text: string,
+            existing: Message | null,
+            onNotSent: (text: string) => void
+        ) => {
             const gen = generation.current
             const conversationId = loadedId.current
             const now = new Date().toISOString()
-            const temp: Message = {
+            const temp: Message = existing ?? {
                 id: nextTempId.current--,
                 conversation_id: conversationId ?? 0,
                 role: 'user',
@@ -130,8 +147,9 @@ export function useConversation(
                 updated_at: now,
             }
 
-            setMessages((prev) => [...prev, temp])
+            if (!existing) setMessages((prev) => [...prev, temp])
             setSendError(null)
+            isRunningRef.current = true
             setIsRunning(true)
 
             try {
@@ -177,15 +195,37 @@ export function useConversation(
                 }
 
                 setSendError({ conversationId, error: apiError })
-                if (NOTHING_SAVED.includes(apiError.kind)) {
+                // A retried message with a real id is saved on the server:
+                // keep it, so it can be retried again.
+                if (NOTHING_SAVED.includes(apiError.kind) && isTempMessage(temp)) {
                     setMessages((prev) => prev.filter((m) => m.id !== temp.id))
                     onNotSent(text)
                 }
             } finally {
-                if (gen === generation.current) setIsRunning(false)
+                if (gen === generation.current) {
+                    isRunningRef.current = false
+                    setIsRunning(false)
+                }
             }
         },
         [navigate, onCreated, onCreatedWithoutReply, onCreditsChanged]
+    )
+
+    const send = useCallback(
+        (text: string, onNotSent: (text: string) => void) =>
+            submit(text, null, onNotSent),
+        [submit]
+    )
+
+    const retry = useCallback(
+        async (onNotSent: (text: string) => void) => {
+            if (isRunningRef.current) return
+            const list = messagesRef.current
+            const last = list[list.length - 1]
+            if (!last || last.role !== 'user') return
+            await submit(last.content, last, onNotSent)
+        },
+        [submit]
     )
 
     const currentId = typeof routeId === 'number' ? routeId : null
@@ -200,5 +240,6 @@ export function useConversation(
         isRunning,
         sendError: visibleSendError,
         send,
+        retry,
     }
 }

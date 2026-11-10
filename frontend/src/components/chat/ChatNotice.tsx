@@ -2,7 +2,7 @@ import { CircleAlert } from 'lucide-react'
 import { useAuiState } from '@assistant-ui/react'
 import { useChatStatus } from '@/chat/useChatStatus'
 
-const NO_REPLY = 'No reply. Send your message again to retry.'
+const NO_REPLY = 'No reply. Press retry or send your message again.'
 
 // Shown under the messages when something went wrong.
 // The "no reply" case is worked out from the data (the last message is from

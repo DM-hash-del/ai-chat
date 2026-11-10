@@ -24,6 +24,7 @@ import {
 } from "@/components/assistant-ui/elements/tool-group.aui";
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { ChatNotice } from "@/components/chat/ChatNotice";
+import { RetryMessageButton } from "@/components/chat/RetryMessageButton";
 import { ComposerCredits } from "@/components/chat/ComposerCredits";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -763,6 +764,8 @@ const UserMessage: FC = () => {
           <UserActionBar />
         </div>
       </div>
+
+      <RetryMessageButton />
 
       <BranchPicker
         data-slot="aui_user-branch-picker"
