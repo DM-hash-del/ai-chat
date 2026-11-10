@@ -38,7 +38,8 @@ return [
     'openai' => [
         'api_key' => env('OPENAI_API_KEY'),
         'model' => env('OPENAI_MODEL'),
-        'max_output_tokens' => env('OPENAI_MAX_OUTPUT_TOKENS'),
+        'max_output_tokens' => (int) env('OPENAI_MAX_OUTPUT_TOKENS', 3000),
+        'timeout' => (int) env('OPENAI_TIMEOUT', 30),
     ],
     'credits' => [
         'free' => env('FREE_TIER_CREDITS'),

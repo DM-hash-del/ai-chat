@@ -3,52 +3,51 @@
 namespace App\Services;
 
 use App\Exceptions\FailedAiResponse;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 
 class AiClientService
 {
     /**
-     * Create a new class instance.
+     * Send the conversation history to the AI provider and return its reply.
+     *
+     * @param  array<int, array{role: string, content: string}>  $messages
+     * @return array{content: string, input_tokens: int|null, output_tokens: int|null}
+     *
+     * @throws FailedAiResponse
      */
-    public function __construct()
+    public function sendMessage(array $messages): array
     {
-        //
-    }
-
-    public function sendMessage(array $messages)
-    {
-        // send message to ai
         try {
-            $response = Http::timeout(15)->withToken(config('services.openai.api_key'))->withHeaders([
+            $response = Http::timeout(config('services.openai.timeout'))->withToken(config('services.openai.api_key'))->withHeaders([
                 'Content-Type' => 'application/json',
             ])->post('https://api.openai.com/v1/responses', [
                 'model' => config('services.openai.model'),
                 'instructions' => 'You are a helpful assistant that can answer questions and help with tasks.',
                 'input' => $messages,
-                'max_output_tokens' => config('services.openai.max_output_tokens'),
+                'max_output_tokens' => (int) config('services.openai.max_output_tokens'),
             ]);
-
-            if ($response->failed()) {
-                throw new FailedAiResponse(
-                    message: 'Failed to send message to AI',
-                    internalMessage: 'Provider Returned: '.$response->status().' '.$response->body(),
-                );
-            }
-        } catch (\Exception $e) {
-            // For a timeout exception, we want to throw a more user friendly error
+        } catch (ConnectionException $e) {
             throw new FailedAiResponse(
                 message: 'Failed to send message to AI',
-                internalMessage: 'Provider Returned: '.$e->getMessage(),
+                internalMessage: 'Connection error: '.$e->getMessage(),
+            );
+        }
+
+        if ($response->failed()) {
+            throw new FailedAiResponse(
+                message: 'Failed to send message to AI',
+                internalMessage: 'Provider Returned: '.$response->status().' '.$response->body(),
             );
         }
 
         $data = $response->json();
 
-        // Check if the response has a message content
         $content = data_get(
             collect(data_get($data, 'output'))->firstWhere('type', 'message'),
             'content.0.text'
         );
+
         if (is_null($content)) {
             throw new FailedAiResponse(
                 message: 'Failed to get content from AI',
@@ -57,10 +56,7 @@ class AiClientService
         }
 
         return [
-            'content' => data_get(
-                collect(data_get($data, 'output'))->firstWhere('type', 'message'),
-                'content.0.text'
-            ),
+            'content' => $content,
             'input_tokens' => data_get($data, 'usage.input_tokens'),
             'output_tokens' => data_get($data, 'usage.output_tokens'),
         ];

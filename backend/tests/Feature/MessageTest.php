@@ -3,8 +3,10 @@
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 use function Pest\Laravel\actingAs;
 use function Pest\Laravel\assertDatabaseCount;
@@ -262,6 +264,59 @@ describe('MessageController', function () {
             $response->assertStatus(502);
             $response->assertExactJson(['message' => 'Failed to send message to AI']);
             assertDatabaseMissing('messages', ['role' => 'assistant']);
+        });
+
+        it('logs the provider status and body when the AI returns an error', function () {
+            Log::spy();
+            $user = User::factory()->create();
+            $conversation = Conversation::factory()->for($user)->create();
+            Http::fake([
+                'https://api.openai.com/v1/responses' => Http::response([
+                    'error' => ['message' => 'The model does not exist', 'type' => 'invalid_request_error'],
+                ], 400),
+            ]);
+
+            $response = actingAs($user)->postJson("/api/conversations/{$conversation->id}/messages", [
+                'content' => 'Hello, world!',
+            ]);
+
+            $response->assertStatus(502);
+            $response->assertExactJson(['message' => 'Failed to send message to AI']);
+            Log::shouldHaveReceived('warning')
+                ->withArgs(fn (string $message, array $context) => str_contains($context['internal'], '400')
+                    && str_contains($context['internal'], 'The model does not exist'))
+                ->once();
+        });
+
+        it('returns 502 when the AI provider cannot be reached', function () {
+            $user = User::factory()->create();
+            $conversation = Conversation::factory()->for($user)->create();
+            Http::fake([
+                'https://api.openai.com/v1/responses' => fn () => throw new ConnectionException('Connection timed out'),
+            ]);
+
+            $response = actingAs($user)->postJson("/api/conversations/{$conversation->id}/messages", [
+                'content' => 'Hello, world!',
+            ]);
+
+            $response->assertStatus(502);
+            $response->assertExactJson(['message' => 'Failed to send message to AI']);
+            assertDatabaseMissing('messages', ['role' => 'assistant']);
+        });
+
+        it('sends max_output_tokens to the AI as an integer', function () {
+            config(['services.openai.max_output_tokens' => '3000']);
+            $user = User::factory()->create();
+            $conversation = Conversation::factory()->for($user)->create();
+            Http::fake([
+                'https://api.openai.com/v1/responses' => Http::response(openAiResponse(), 200),
+            ]);
+
+            actingAs($user)->postJson("/api/conversations/{$conversation->id}/messages", [
+                'content' => 'Hello, world!',
+            ])->assertStatus(201);
+
+            Http::assertSent(fn (Request $request) => $request['max_output_tokens'] === 3000);
         });
     });
 });
