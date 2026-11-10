@@ -8,7 +8,10 @@ const NO_REPLY = 'No reply. Send your message again to retry.'
 // The "no reply" case is worked out from the data (the last message is from
 // the user and nothing is running), so it also shows after a refresh.
 export function ChatNotice() {
-    const { sendError } = useChatStatus()
+    const status = useChatStatus()
+    // Out of credits is explained under the composer instead.
+    const sendError =
+        status.sendError?.kind === 'out_of_credits' ? null : status.sendError
     const isRunning = useAuiState((s) => s.thread.isRunning)
     const lastIsUser = useAuiState((s) => {
         const list = s.thread.messages

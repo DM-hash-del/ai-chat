@@ -11,6 +11,7 @@ import { ChatStatusContext } from './chat-status-context'
 import { convertMessage } from './convert-message'
 import type { ConversationState } from './useConversation'
 import { ListActionError, type ConversationListState } from './useConversationList'
+import type { UsageState } from '@/usage/useUsage'
 
 // The composer hands us a list of parts; we only support text.
 const getText = (message: AppendMessage): string =>
@@ -22,12 +23,18 @@ const getText = (message: AppendMessage): string =>
 type Props = {
     conversation: ConversationState
     list: ConversationListState
+    usage: UsageState
     children: ReactNode
 }
 
 // Connects assistant-ui to our own state (an "external store"): React state
 // holds the messages Laravel returned, and assistant-ui only displays them.
-export function ChatRuntimeProvider({ conversation, list, children }: Props) {
+export function ChatRuntimeProvider({
+    conversation,
+    list,
+    usage,
+    children,
+}: Props) {
     const navigate = useNavigate()
     const { send, messages, isRunning, loadStatus, conversationId, sendError } =
         conversation
@@ -95,6 +102,8 @@ export function ChatRuntimeProvider({ conversation, list, children }: Props) {
         convertMessage,
         isRunning,
         isLoading: loadStatus === 'loading',
+        // Out of credits: Send and Enter do nothing, but typing still works.
+        isSendDisabled: usage.outOfCredits,
         onNew,
         adapters: { threadList },
     })
@@ -103,7 +112,7 @@ export function ChatRuntimeProvider({ conversation, list, children }: Props) {
         runtimeRef.current = runtime
     }, [runtime])
 
-    const status = useMemo(() => ({ sendError }), [sendError])
+    const status = useMemo(() => ({ sendError, usage }), [sendError, usage])
 
     return (
         <AssistantRuntimeProvider runtime={runtime}>

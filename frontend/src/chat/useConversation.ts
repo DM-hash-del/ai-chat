@@ -40,6 +40,9 @@ export type ConversationListEvents = {
     onCreated: (conversation: ConversationWithMessages) => void
     // It was saved but the AI failed (502): we only know its id.
     onCreatedWithoutReply: () => void
+    // Credits may have changed: a reply was saved (false), or the backend
+    // refused the send for lack of credits (true).
+    onCreditsChanged: (outOfCredits: boolean) => void
 }
 
 // "/" → null (new chat), "/c/7" → 7, "/c/abc" → 'invalid'.
@@ -50,7 +53,7 @@ function parseRouteId(param: string | undefined): number | null | 'invalid' {
 
 export function useConversation(
     routeParam: string | undefined,
-    { onCreated, onCreatedWithoutReply }: ConversationListEvents
+    { onCreated, onCreatedWithoutReply, onCreditsChanged }: ConversationListEvents
 ): ConversationState {
     const navigate = useNavigate()
     const routeId = parseRouteId(routeParam)
@@ -136,6 +139,7 @@ export function useConversation(
                     const conversation = await createConversation(text)
                     // It exists on the server even if the user has moved on.
                     onCreated(conversation)
+                    onCreditsChanged(false)
                     if (gen !== generation.current) return
                     loadedId.current = conversation.id
                     setMessages((prev) =>
@@ -145,6 +149,8 @@ export function useConversation(
                     navigate(`/c/${conversation.id}`)
                 } else {
                     const result = await sendMessage(conversationId, text)
+                    // Credits belong to the account, not this conversation.
+                    onCreditsChanged(false)
                     if (gen !== generation.current) return
                     setMessages((prev) =>
                         mergeMessages(
@@ -159,6 +165,7 @@ export function useConversation(
                 if (conversationId === null && apiError.conversationId !== undefined) {
                     onCreatedWithoutReply()
                 }
+                if (apiError.kind === 'out_of_credits') onCreditsChanged(true)
                 if (gen !== generation.current) return
 
                 // A new chat failed at the AI step: the conversation and the
@@ -178,7 +185,7 @@ export function useConversation(
                 if (gen === generation.current) setIsRunning(false)
             }
         },
-        [navigate, onCreated, onCreatedWithoutReply]
+        [navigate, onCreated, onCreatedWithoutReply, onCreditsChanged]
     )
 
     const currentId = typeof routeId === 'number' ? routeId : null

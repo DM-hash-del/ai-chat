@@ -24,6 +24,7 @@ import {
 } from "@/components/assistant-ui/elements/tool-group.aui";
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
 import { ChatNotice } from "@/components/chat/ChatNotice";
+import { ComposerCredits } from "@/components/chat/ComposerCredits";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -171,18 +172,18 @@ const EMPTY_COMPONENTS: ThreadComponents = {};
 const ThreadComponentsContext =
   createContext<ThreadComponents>(EMPTY_COMPONENTS);
 
-// Startup exposes a loading placeholder thread; treat it as a new chat so
-// the composer mounts centered. Loads after startup keep the docked layout.
+// Our thread.isLoading is true only while a conversation is being fetched
+// (ChatRuntimeProvider), so it alone decides welcome vs. skeleton. The
+// generated version also looked at the sidebar list loading, which showed the
+// welcome line on a refresh of /c/:id.
 const isNewChatView = (s: AssistantState) =>
-  s.thread.messages.length === 0 &&
-  (!s.thread.isLoading || s.threads.isLoading);
+  s.thread.messages.length === 0 && !s.thread.isLoading;
 
-// A switched thread that is still fetching its history: skeleton, not welcome.
+// A conversation that is still fetching its history: skeleton, not welcome.
 const isHistoryLoadingView = (s: AssistantState) =>
   s.thread.messages.length === 0 &&
   s.thread.isLoading &&
-  !s.thread.isDisabled &&
-  !s.threads.isLoading;
+  !s.thread.isDisabled;
 
 const ThreadHistorySkeleton: FC = () => (
   <div
@@ -275,6 +276,7 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({
             <ThreadScrollToBottom />
             <ThreadFollowupSuggestions />
             <Composer autoFocus={autoFocus} />
+            <ComposerCredits />
             <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
               <ThreadSuggestions />
             </AuiIf>

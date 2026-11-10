@@ -3,6 +3,7 @@ import { useLocation } from 'react-router'
 import { Menu, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { UserMenu } from '@/components/UserMenu'
+import { SidebarCredits } from '@/components/chat/SidebarCredits'
 import { cn } from '@/lib/utils'
 
 type Props = {
@@ -70,6 +71,7 @@ export function ChatLayout({ sidebar, children }: Props) {
                     </Button>
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto p-2">{sidebar}</div>
+                <SidebarCredits />
                 <UserMenu />
             </aside>
             <main className="flex min-w-0 flex-1 flex-col">
